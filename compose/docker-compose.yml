@@ -1,0 +1,72 @@
+# ==============================================================================
+# Log Management Stack
+#
+# Architecture:
+#   sample-app (httpd)  -->  writes access/error logs to a shared volume
+#                              (apache-logs)
+#   forwarder (universalforwarder)
+#     - reads the same apache-logs volume
+#     - tails/monitors the log files
+#     - forwards events to splunk:9997 (the Splunk forwarder receiving port)
+#   splunk (indexer + search head)
+#     - receives forwarded data on 9997
+#     - indexes it to a persistent named volume (splunk-var)
+#     - exposes the Splunk Web UI on 8000
+#
+# All three services share a common bridge network, "logging-net", so they
+# can resolve each other by service name (e.g. "splunk", "forwarder").
+#
+# Secrets (e.g. SPLUNK_PASSWORD) are supplied via a .env file that is NOT
+# committed to source control. See .env.example for the required variables.
+# ==============================================================================
+
+services:
+  splunk:
+    image: splunk/splunk:latest
+    container_name: splunk
+    hostname: splunk
+    environment:
+      SPLUNK_START_ARGS: --accept-license
+      SPLUNK_PASSWORD: ${SPLUNK_PASSWORD}
+    ports:
+      - "8000:8000"   # Splunk Web UI
+      - "9997:9997"   # Forwarder receiving port
+    volumes:
+      - splunk-var:/opt/splunk/var
+    networks:
+      - logging-net
+    restart: unless-stopped
+
+  forwarder:
+    image: splunk/universalforwarder:latest
+    container_name: forwarder
+    hostname: forwarder
+    environment:
+      SPLUNK_START_ARGS: --accept-license
+      SPLUNK_PASSWORD: ${SPLUNK_PASSWORD}
+      SPLUNK_STANDALONE_URL: splunk:9997
+    volumes:
+      - apache-logs:/var/log/apache2:ro
+    networks:
+      - logging-net
+    depends_on:
+      - splunk
+    restart: unless-stopped
+
+  sample-app:
+    image: httpd:latest
+    container_name: sample-app
+    hostname: sample-app
+    volumes:
+      - apache-logs:/usr/local/apache2/logs
+    networks:
+      - logging-net
+    restart: unless-stopped
+
+networks:
+  logging-net:
+    driver: bridge
+
+volumes:
+  splunk-var:
+  apache-logs:
