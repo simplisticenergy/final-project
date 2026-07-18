@@ -27,6 +27,7 @@ services:
     hostname: splunk
     environment:
       SPLUNK_START_ARGS: --accept-license
+      SPLUNK_GENERAL_TERMS: --accept-sgt-current-at-splunk-com
       SPLUNK_PASSWORD: ${SPLUNK_PASSWORD}
     ports:
       - "8000:8000"   # Splunk Web UI
@@ -43,6 +44,7 @@ services:
     hostname: forwarder
     environment:
       SPLUNK_START_ARGS: --accept-license
+      SPLUNK_GENERAL_TERMS: --accept-sgt-current-at-splunk-com
       SPLUNK_PASSWORD: ${SPLUNK_PASSWORD}
       SPLUNK_STANDALONE_URL: splunk:9997
     volumes:
