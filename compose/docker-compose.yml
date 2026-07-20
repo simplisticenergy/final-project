@@ -66,6 +66,8 @@ services:
     image: httpd:latest
     container_name: sample-app
     hostname: sample-app
+    ports:
+      - "127.0.0.1:80:80"   # bound to localhost only - curl from the EC2 VM itself, not exposed to the internet
     volumes:
       - apache-logs:/usr/local/apache2/logs
     networks:
