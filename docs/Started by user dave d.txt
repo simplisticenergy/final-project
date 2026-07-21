@@ -1,0 +1,241 @@
+Started by user dave d
+Obtained jenkins/Jenkinsfile from git https://github.com/simplisticenergy/final-project
+[Pipeline] Start of Pipeline
+[Pipeline] node
+Running on Jenkins in /var/jenkins_home/workspace/splunk-stack-deploy
+[Pipeline] {
+[Pipeline] stage
+[Pipeline] { (Declarative: Checkout SCM)
+[Pipeline] checkout
+Selected Git installation does not exist. Using Default
+The recommended git tool is: NONE
+No credentials specified
+ > git rev-parse --resolve-git-dir /var/jenkins_home/workspace/splunk-stack-deploy/.git # timeout=10
+Fetching changes from the remote Git repository
+ > git config remote.origin.url https://github.com/simplisticenergy/final-project # timeout=10
+Fetching upstream changes from https://github.com/simplisticenergy/final-project
+ > git --version # timeout=10
+ > git --version # 'git version 2.47.3'
+ > git fetch --tags --force --progress -- https://github.com/simplisticenergy/final-project +refs/heads/*:refs/remotes/origin/* # timeout=10
+ > git rev-parse refs/remotes/origin/main^{commit} # timeout=10
+Checking out Revision 7c6d41f85b062666933eb14577d686eeeb64ea20 (refs/remotes/origin/main)
+ > git config core.sparsecheckout # timeout=10
+ > git checkout -f 7c6d41f85b062666933eb14577d686eeeb64ea20 # timeout=10
+Commit message: "Fix Jenkins pipeline: health check networking, redirect handling, and Splunk password injection"
+ > git rev-list --no-walk 7c6d41f85b062666933eb14577d686eeeb64ea20 # timeout=10
+[Pipeline] }
+[Pipeline] // stage
+[Pipeline] withEnv
+[Pipeline] {
+[Pipeline] withCredentials
+Masking supported pattern matches of $SPLUNK_PASSWORD
+[Pipeline] {
+[Pipeline] withEnv
+[Pipeline] {
+[Pipeline] stage
+[Pipeline] { (Checkout)
+[Pipeline] checkout
+Selected Git installation does not exist. Using Default
+The recommended git tool is: NONE
+No credentials specified
+ > git rev-parse --resolve-git-dir /var/jenkins_home/workspace/splunk-stack-deploy/.git # timeout=10
+Fetching changes from the remote Git repository
+ > git config remote.origin.url https://github.com/simplisticenergy/final-project # timeout=10
+Fetching upstream changes from https://github.com/simplisticenergy/final-project
+ > git --version # timeout=10
+ > git --version # 'git version 2.47.3'
+ > git fetch --tags --force --progress -- https://github.com/simplisticenergy/final-project +refs/heads/*:refs/remotes/origin/* # timeout=10
+ > git rev-parse refs/remotes/origin/main^{commit} # timeout=10
+Checking out Revision 7c6d41f85b062666933eb14577d686eeeb64ea20 (refs/remotes/origin/main)
+ > git config core.sparsecheckout # timeout=10
+ > git checkout -f 7c6d41f85b062666933eb14577d686eeeb64ea20 # timeout=10
+Commit message: "Fix Jenkins pipeline: health check networking, redirect handling, and Splunk password injection"
+[Pipeline] }
+[Pipeline] // stage
+[Pipeline] stage
+[Pipeline] { (Validate)
+[Pipeline] sh
++ docker compose -f /var/jenkins_home/workspace/splunk-stack-deploy/compose/docker-compose.yml config
+name: compose
+services:
+  forwarder:
+    container_name: forwarder
+    depends_on:
+      splunk:
+        condition: service_started
+        required: true
+    environment:
+      SPLUNK_GENERAL_TERMS: --accept-sgt-current-at-splunk-com
+      SPLUNK_PASSWORD: ****
+      SPLUNK_START_ARGS: --accept-license
+    hostname: forwarder
+    image: splunk/universalforwarder:latest
+    networks:
+      logging-net: null
+    restart: unless-stopped
+    volumes:
+      - type: volume
+        source: apache-logs
+        target: /var/log/apache2
+        read_only: true
+        volume: {}
+      - type: bind
+        source: /var/jenkins_home/workspace/splunk-stack-deploy/splunk-config
+        target: /opt/splunkforwarder/etc/system/local
+        bind: {}
+  sample-app:
+    command:
+      - sh
+      - -c
+      - |-
+        sed -i 's#CustomLog /proc/self/fd/1 common#CustomLog "logs/access_log" combined#' conf/httpd.conf &&
+               sed -i 's#ErrorLog /proc/self/fd/2#ErrorLog "logs/error_log"#' conf/httpd.conf &&
+               exec httpd-foreground
+    container_name: sample-app
+    hostname: sample-app
+    image: httpd:latest
+    networks:
+      logging-net: null
+    ports:
+      - mode: ingress
+        host_ip: 127.0.0.1
+        target: 80
+        published: "80"
+        protocol: tcp
+    restart: unless-stopped
+    volumes:
+      - type: volume
+        source: apache-logs
+        target: /usr/local/apache2/logs
+        volume: {}
+  splunk:
+    container_name: splunk
+    environment:
+      SPLUNK_GENERAL_TERMS: --accept-sgt-current-at-splunk-com
+      SPLUNK_PASSWORD: ****
+      SPLUNK_START_ARGS: --accept-license
+    hostname: splunk
+    image: splunk/splunk:latest
+    networks:
+      logging-net: null
+    ports:
+      - mode: ingress
+        target: 8000
+        published: "8000"
+        protocol: tcp
+      - mode: ingress
+        target: 9997
+        published: "9997"
+        protocol: tcp
+    restart: unless-stopped
+    volumes:
+      - type: volume
+        source: splunk-var
+        target: /opt/splunk/var
+        volume: {}
+networks:
+  logging-net:
+    name: compose_logging-net
+    driver: bridge
+volumes:
+  apache-logs:
+    name: compose_apache-logs
+  splunk-var:
+    name: compose_splunk-var
+[Pipeline] }
+[Pipeline] // stage
+[Pipeline] stage
+[Pipeline] { (Deploy)
+[Pipeline] sh
++ docker compose -f /var/jenkins_home/workspace/splunk-stack-deploy/compose/docker-compose.yml up -d --build
+ Network compose_logging-net Creating 
+ Network compose_logging-net Created 
+ Container splunk Creating 
+ Container sample-app Creating 
+ Container splunk Created 
+ Container forwarder Creating 
+ Container sample-app Created 
+ Container forwarder Created 
+ Container sample-app Starting 
+ Container splunk Starting 
+ Container sample-app Started 
+ Container splunk Started 
+ Container forwarder Starting 
+ Container forwarder Started 
+[Pipeline] }
+[Pipeline] // stage
+[Pipeline] stage
+[Pipeline] { (Health Check)
+[Pipeline] sh
++ elapsed=0
++ grep -q 200
++ curl -s -L -o /dev/null -w %{http_code} http://host.docker.internal:8000
++ elapsed=10
++ [ 10 -ge 120 ]
++ echo Splunk Web UI not ready yet, retrying in 10s...
+Splunk Web UI not ready yet, retrying in 10s...
++ sleep 10
++ grep -q 200
++ curl -s -L -o /dev/null -w %{http_code} http://host.docker.internal:8000
++ elapsed=20
++ [ 20 -ge 120 ]
++ echo Splunk Web UI not ready yet, retrying in 10s...
+Splunk Web UI not ready yet, retrying in 10s...
++ sleep 10
++ curl -s -L -o /dev/null -w %{http_code} http://host.docker.internal:8000
++ grep -q 200
++ elapsed=30
++ [ 30 -ge 120 ]
++ echo Splunk Web UI not ready yet, retrying in 10s...
+Splunk Web UI not ready yet, retrying in 10s...
++ sleep 10
++ curl -s -L -o /dev/null -w %{http_code} http://host.docker.internal:8000
++ grep -q 200
++ elapsed=40
++ [ 40 -ge 120 ]
++ echo Splunk Web UI not ready yet, retrying in 10s...
+Splunk Web UI not ready yet, retrying in 10s...
++ sleep 10
++ + curlgrep -s -q -L 200 -o
+ /dev/null -w %{http_code} http://host.docker.internal:8000
++ elapsed=50
++ [ 50 -ge 120 ]
++ echo Splunk Web UI not ready yet, retrying in 10s...
+Splunk Web UI not ready yet, retrying in 10s...
++ sleep 10
++ + curl -s -L -o /dev/null -wgrep %{http_code} -q http://host.docker.internal:8000 200
+
++ elapsed=60
++ [ 60 -ge 120 ]
++ echo Splunk Web UI not ready yet, retrying in 10s...
+Splunk Web UI not ready yet, retrying in 10s...
++ sleep 10
++ grep -q 200
++ curl -s -L -o /dev/null -w %{http_code} http://host.docker.internal:8000
++ elapsed=70
++ [ 70 -ge 120 ]
++ echo Splunk Web UI not ready yet, retrying in 10s...
+Splunk Web UI not ready yet, retrying in 10s...
++ sleep 10
++ grep -q 200
++ curl -s -L -o /dev/null -w %{http_code} http://host.docker.internal:8000
++ echo Splunk Web UI is up and returned HTTP 200
+Splunk Web UI is up and returned HTTP 200
+[Pipeline] }
+[Pipeline] // stage
+[Pipeline] stage
+[Pipeline] { (Declarative: Post Actions)
+[Pipeline] echo
+PASS: Stack deployed successfully and Splunk Web UI is healthy.
+[Pipeline] }
+[Pipeline] // stage
+[Pipeline] }
+[Pipeline] // withEnv
+[Pipeline] }
+[Pipeline] // withCredentials
+[Pipeline] }
+[Pipeline] // withEnv
+[Pipeline] }
+[Pipeline] // node
+[Pipeline] End of Pipeline
+Finished: SUCCESS
