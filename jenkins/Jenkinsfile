@@ -8,9 +8,18 @@ pipeline {
         WORKSPACE_DIR   = "${env.WORKSPACE}"
         COMPOSE_FILE    = "${env.WORKSPACE_DIR}/compose/docker-compose.yml"
         SPLUNK_WEB_PORT = '8000'
-        HEALTHCHECK_URL = "http://localhost:${SPLUNK_WEB_PORT}"
+        // Jenkins runs docker as a sibling container (via the mounted host
+        // docker.sock), not as docker-in-docker, so "localhost" here would
+        // resolve to the Jenkins container itself, not the host running the
+        // compose stack. host.docker.internal routes back to the host.
+        HEALTHCHECK_URL = "http://host.docker.internal:${SPLUNK_WEB_PORT}"
         RETRY_INTERVAL  = '10'   // seconds between health check attempts
         RETRY_TIMEOUT   = '120'  // total seconds to allow for health check
+        // compose/.env is gitignored (holds a real secret) so it never
+        // exists in a fresh Jenkins checkout. Pull the password from a
+        // Jenkins credential instead so `docker compose` picks it up as a
+        // real environment variable (which takes precedence over .env).
+        SPLUNK_PASSWORD = credentials('SPLUNK_PASSWORD')
     }
 
     stages {
@@ -41,7 +50,7 @@ pipeline {
             steps {
                 sh '''
                     elapsed=0
-                    until curl -s -o /dev/null -w "%{http_code}" "${HEALTHCHECK_URL}" | grep -q "200"; do
+                    until curl -s -L -o /dev/null -w "%{http_code}" "${HEALTHCHECK_URL}" | grep -q "200"; do
                         elapsed=$((elapsed + RETRY_INTERVAL))
                         if [ "$elapsed" -ge "$RETRY_TIMEOUT" ]; then
                             echo "Splunk Web UI did not return HTTP 200 within ${RETRY_TIMEOUT}s"
