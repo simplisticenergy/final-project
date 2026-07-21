@@ -53,9 +53,15 @@ services:
       SPLUNK_PASSWORD: ${SPLUNK_PASSWORD}
     volumes:
       - apache-logs:/var/log/apache2:ro
-      - ../splunk-config/outputs.conf:/opt/splunkforwarder/etc/system/local/outputs.conf:ro
-      - ../splunk-config/inputs.conf:/opt/splunkforwarder/etc/system/local/inputs.conf:ro
-      - ../splunk-config/props.conf:/opt/splunkforwarder/etc/system/local/props.conf:ro
+      # Mount the whole directory, not individual files, and NOT :ro.
+      # The forwarder's ansible-driven entrypoint (1) chowns everything
+      # under $SPLUNK_HOME on every startup - fails fatally on a :ro mount -
+      # and (2) rewrites inputs.conf itself via write-temp-then-rename,
+      # which errors with EBUSY when the target is a single bind-mounted
+      # file (rename can't replace a mount point). Mounting the directory
+      # avoids both: files inside a mounted directory are ordinary files
+      # from the container's point of view.
+      - ../splunk-config:/opt/splunkforwarder/etc/system/local
     networks:
       - logging-net
     depends_on:
@@ -68,6 +74,15 @@ services:
     hostname: sample-app
     ports:
       - "127.0.0.1:80:80"   # bound to localhost only - curl from the EC2 VM itself, not exposed to the internet
+    # The official httpd image logs to /proc/self/fd/1 and /proc/self/fd/2
+    # (stdout/stderr) by default, so nothing ever lands in the logs/ dir
+    # for the forwarder to tail. Point CustomLog/ErrorLog at real files
+    # in the mounted volume instead, using combined format so it matches
+    # the access_combined sourcetype in inputs.conf/props.conf.
+    command: >
+      sh -c "sed -i 's#CustomLog /proc/self/fd/1 common#CustomLog \"logs/access_log\" combined#' conf/httpd.conf &&
+             sed -i 's#ErrorLog /proc/self/fd/2#ErrorLog \"logs/error_log\"#' conf/httpd.conf &&
+             exec httpd-foreground"
     volumes:
       - apache-logs:/usr/local/apache2/logs
     networks:

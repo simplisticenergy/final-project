@@ -18,6 +18,13 @@ splunk-config/**/var/
 *.stash_new
 *.splunk_bak
 
+# Runtime state the forwarder's own provisioning writes into the
+# bind-mounted splunk-config/ dir on every boot - not authored config.
+# server.conf in particular holds a generated pass4SymmKey secret.
+splunk-config/migration.conf
+splunk-config/server.conf
+splunk-config/web.conf
+
 # --- Logs ---
 *.log
 logs/
