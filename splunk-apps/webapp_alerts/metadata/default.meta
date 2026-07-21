@@ -1,0 +1,7 @@
+# Export the app's knowledge objects (the saved search/alert) globally
+# so they're visible from Search & Reporting and the Alerts listing,
+# not only from inside this app's context.
+
+[]
+access = read : [ * ], write : [ admin ]
+export = system

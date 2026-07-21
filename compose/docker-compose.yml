@@ -39,6 +39,14 @@ services:
       - "9997:9997"   # Forwarder receiving port
     volumes:
       - splunk-var:/opt/splunk/var
+      # Version-controlled Splunk app holding the scheduled alert
+      # (savedsearches.conf). Saved searches run on the indexer/search
+      # head, not the forwarder, so this is mounted here rather than
+      # into splunk-config/. Directory mount, read-write, for the same
+      # reasons as the forwarder's config mount (chown + atomic-rename
+      # in the entrypoint); Splunk may write runtime state into local/
+      # inside the app, which is gitignored.
+      - ../splunk-apps/webapp_alerts:/opt/splunk/etc/apps/webapp_alerts
     networks:
       - logging-net
     restart: unless-stopped

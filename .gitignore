@@ -25,6 +25,11 @@ splunk-config/migration.conf
 splunk-config/server.conf
 splunk-config/web.conf
 
+# Runtime state Splunk writes inside bind-mounted apps (UI edits,
+# scheduler state). Authored config lives in default/, which is tracked.
+splunk-apps/*/local/
+splunk-apps/*/metadata/local.meta
+
 # --- Logs ---
 *.log
 logs/
@@ -57,3 +62,6 @@ Thumbs.db
 .vscode/
 .idea/
 *.swp
+
+# Final report stays local to the EC2 instance - not committed
+docs/final_report.md

@@ -36,7 +36,12 @@ by service/container name:
 - **`splunk`** (`splunk/splunk:latest`) — the indexer/search head. It
   receives forwarded data on port `9997`, indexes it into the `webapp_logs`
   index on the named volume `splunk-var` (`/opt/splunk/var`), and serves
-  Splunk Web on port `8000`.
+  Splunk Web on port `8000`. The `webapp_logs` index is defined in
+  `splunk-apps/webapp_alerts/default/indexes.conf` (bind-mounted into
+  `etc/apps/`), **not** created by hand in the UI — `/opt/splunk/etc` is
+  not volume-backed, so a UI-created index definition is silently lost
+  whenever the container is recreated (see
+  `docs/troubleshooting-container-recreation.md`).
 
 **Data flow:** `sample-app` writes Apache logs to the `apache-logs` volume
 -> `forwarder` monitors those files and forwards events over TCP `9997`
@@ -158,12 +163,25 @@ or use the Splunk REST API / CLI to create it programmatically from that
 file. Once saved, it appears under **Dashboards** in the app you created
 it in.
 
-There is currently no saved-search/alert configuration in this repo (no
-`savedsearches.conf` and no alert defined in the dashboard XML). To add
-one, the simplest approach is to open one of the dashboard's searches in
-Splunk Web, click **Save As** -> **Alert**, and configure a trigger
-condition (e.g. `error_rate > 15` or a threshold on the "Apache Error Log
-Events" search) and an action (email, webhook, etc.).
+One scheduled alert is version-controlled in
+`splunk-apps/webapp_alerts/default/savedsearches.conf`, a small Splunk app
+that `docker-compose.yml` bind-mounts into the indexer at
+`/opt/splunk/etc/apps/webapp_alerts` (alerts run on the indexer/search
+head, not the forwarder, so it can't live in `splunk-config/`):
+
+- **Webapp High Error Rate (4xx/5xx)** — runs every 5 minutes over the
+  last 15 minutes and fires when 4xx/5xx responses exceed 15% of requests
+  (the dashboard's red threshold), with a 10-request minimum so a single
+  404 against near-zero traffic doesn't trigger it. Firings are recorded
+  under **Activity** -> **Triggered Alerts** (`alert.track = 1`) and
+  throttled to once per 30 minutes. No email/webhook action is configured
+  because the stack has no SMTP server; add `action.email.*` settings (or
+  edit the alert in Splunk Web) to attach one.
+
+**To test it:** generate enough failing traffic to cross the threshold,
+e.g. `for i in $(seq 1 20); do curl -s http://127.0.0.1/does-not-exist
+>/dev/null; done`, wait for the next 5-minute schedule tick, and check
+**Activity** -> **Triggered Alerts** in Splunk Web.
 
 ## Repository structure
 
@@ -175,6 +193,14 @@ Events" search) and an action (email, webhook, etc.).
 │   └── .env                       # gitignored — real secret, created locally from .env.example
 ├── jenkins/
 │   └── Jenkinsfile                # Checkout -> Validate -> Deploy -> Health Check pipeline
+├── splunk-apps/
+│   └── webapp_alerts/             # Splunk app mounted into the indexer's etc/apps/
+│       ├── default/
+│       │   ├── savedsearches.conf # the "Webapp High Error Rate" scheduled alert
+│       │   ├── indexes.conf       # webapp_logs index definition (survives container recreation)
+│       │   └── app.conf           # app metadata (hidden from launcher, enabled)
+│       └── metadata/
+│           └── default.meta       # exports the alert globally (visible outside the app)
 ├── splunk-config/
 │   ├── inputs.conf                # forwarder: which log files to monitor, into which index/sourcetype
 │   ├── outputs.conf                # forwarder: where to ship data (splunk:9997)
@@ -186,6 +212,7 @@ Events" search) and an action (email, webhook, etc.).
 │   ├── dashboards/
 │   │   └── webapp-logs-overview.xml   # source XML for the Webapp Logs Overview dashboard
 │   ├── troubleshooting-log-ingestion.md      # postmortem: why index=webapp_logs was empty
-│   └── troubleshooting-jenkins-pipeline.md   # postmortem: why the Jenkins pipeline kept failing
+│   ├── troubleshooting-jenkins-pipeline.md   # postmortem: why the Jenkins pipeline kept failing
+│   └── troubleshooting-container-recreation.md  # postmortem: index definition + splunk.secret lost on recreate
 └── README.md
 ```
