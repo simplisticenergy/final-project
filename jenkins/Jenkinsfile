@@ -1,0 +1,67 @@
+// Declarative pipeline to validate, deploy, and health-check the
+// Splunk log-management stack defined in compose/docker-compose.yml.
+pipeline {
+    agent any
+
+    environment {
+        // Working directory on the target VM where the repo is checked out.
+        WORKSPACE_DIR   = "${env.WORKSPACE}"
+        COMPOSE_FILE    = "${env.WORKSPACE_DIR}/compose/docker-compose.yml"
+        SPLUNK_WEB_PORT = '8000'
+        HEALTHCHECK_URL = "http://localhost:${SPLUNK_WEB_PORT}"
+        RETRY_INTERVAL  = '10'   // seconds between health check attempts
+        RETRY_TIMEOUT   = '120'  // total seconds to allow for health check
+    }
+
+    stages {
+        stage('Checkout') {
+            // Pull the latest code from the git repo configured for this job.
+            steps {
+                checkout scm
+            }
+        }
+
+        stage('Validate') {
+            // Sanity-check the compose file syntax before touching anything running.
+            steps {
+                sh "docker compose -f ${COMPOSE_FILE} config"
+            }
+        }
+
+        stage('Deploy') {
+            // (Re)build and (re)deploy the stack in detached mode.
+            steps {
+                sh "docker compose -f ${COMPOSE_FILE} up -d --build"
+            }
+        }
+
+        stage('Health Check') {
+            // Poll the Splunk Web UI until it returns HTTP 200, retrying
+            // every RETRY_INTERVAL seconds for up to RETRY_TIMEOUT seconds.
+            steps {
+                sh '''
+                    elapsed=0
+                    until curl -s -o /dev/null -w "%{http_code}" "${HEALTHCHECK_URL}" | grep -q "200"; do
+                        elapsed=$((elapsed + RETRY_INTERVAL))
+                        if [ "$elapsed" -ge "$RETRY_TIMEOUT" ]; then
+                            echo "Splunk Web UI did not return HTTP 200 within ${RETRY_TIMEOUT}s"
+                            exit 1
+                        fi
+                        echo "Splunk Web UI not ready yet, retrying in ${RETRY_INTERVAL}s..."
+                        sleep "$RETRY_INTERVAL"
+                    done
+                    echo "Splunk Web UI is up and returned HTTP 200"
+                '''
+            }
+        }
+    }
+
+    post {
+        success {
+            echo "PASS: Stack deployed successfully and Splunk Web UI is healthy."
+        }
+        failure {
+            echo "FAIL: Pipeline failed - check the stage logs above for details."
+        }
+    }
+}
