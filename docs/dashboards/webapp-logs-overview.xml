@@ -1,0 +1,199 @@
+<form version="1.1" theme="light">
+  <label>Webapp Logs Overview</label>
+  <description>Access and error activity for index=webapp_logs (sample-app / Apache combined + error logs)</description>
+
+  <fieldset submitButton="false" autoRun="true">
+    <input type="time" token="time_tok">
+      <label>Time Range</label>
+      <default>
+        <earliest>-24h@h</earliest>
+        <latest>now</latest>
+      </default>
+    </input>
+    <input type="text" token="uri_filter_tok">
+      <label>URI contains</label>
+      <default>*</default>
+      <initialValue>*</initialValue>
+    </input>
+  </fieldset>
+
+  <row>
+    <panel>
+      <single>
+        <title>Total Requests</title>
+        <search>
+          <query>index=webapp_logs sourcetype=access_combined uri="$uri_filter_tok$"
+| stats count</query>
+          <earliest>$time_tok.earliest$</earliest>
+          <latest>$time_tok.latest$</latest>
+        </search>
+        <option name="drilldown">none</option>
+        <option name="numberPrecision">0</option>
+      </single>
+    </panel>
+    <panel>
+      <single>
+        <title>Error Rate (4xx/5xx)</title>
+        <search>
+          <query>index=webapp_logs sourcetype=access_combined uri="$uri_filter_tok$"
+| rex field=_raw "\"\S+ \S+ \S+\" (?&lt;status&gt;\d{3})"
+| eval is_error=if(status&gt;=400,1,0)
+| stats avg(is_error) as error_rate
+| eval error_rate=round(error_rate*100,2)</query>
+          <earliest>$time_tok.earliest$</earliest>
+          <latest>$time_tok.latest$</latest>
+        </search>
+        <option name="drilldown">none</option>
+        <option name="numberPrecision">2</option>
+        <option name="unit">%</option>
+        <option name="rangeColors">["0x53a051","0xf8be34","0xdc4e41"]</option>
+        <option name="rangeValues">[5,15]</option>
+        <option name="useColors">1</option>
+      </single>
+    </panel>
+    <panel>
+      <single>
+        <title>Unique Clients</title>
+        <search>
+          <query>index=webapp_logs sourcetype=access_combined uri="$uri_filter_tok$"
+| rex field=_raw "^(?&lt;clientip&gt;\S+)"
+| stats dc(clientip) as unique_clients</query>
+          <earliest>$time_tok.earliest$</earliest>
+          <latest>$time_tok.latest$</latest>
+        </search>
+        <option name="drilldown">none</option>
+      </single>
+    </panel>
+    <panel>
+      <single>
+        <title>Apache Error Log Events</title>
+        <search>
+          <query>index=webapp_logs sourcetype=httpd_error
+| stats count</query>
+          <earliest>$time_tok.earliest$</earliest>
+          <latest>$time_tok.latest$</latest>
+        </search>
+        <option name="drilldown">none</option>
+        <option name="useColors">1</option>
+        <option name="rangeColors">["0x53a051","0xf8be34","0xdc4e41"]</option>
+        <option name="rangeValues">[1,20]</option>
+      </single>
+    </panel>
+  </row>
+
+  <row>
+    <panel>
+      <title>Requests Over Time by Status Class</title>
+      <chart>
+        <search>
+          <query>index=webapp_logs sourcetype=access_combined uri="$uri_filter_tok$"
+| rex field=_raw "\"\S+ \S+ \S+\" (?&lt;status&gt;\d{3})"
+| eval status_class=case(
+    status&gt;=200 AND status&lt;300, "2xx Success",
+    status&gt;=300 AND status&lt;400, "3xx Redirect",
+    status&gt;=400 AND status&lt;500, "4xx Client Error",
+    status&gt;=500, "5xx Server Error",
+    1=1, "Other")
+| timechart span=5m count by status_class</query>
+          <earliest>$time_tok.earliest$</earliest>
+          <latest>$time_tok.latest$</latest>
+        </search>
+        <option name="charting.chart">column</option>
+        <option name="charting.chart.stackMode">stacked</option>
+        <option name="charting.legend.placement">bottom</option>
+        <option name="charting.axisTitleY.text">Requests</option>
+        <option name="charting.fieldColors">{"2xx Success":0x53a051,"3xx Redirect":0x6db7c6,"4xx Client Error":0xf8be34,"5xx Server Error":0xdc4e41}</option>
+      </chart>
+    </panel>
+    <panel>
+      <title>HTTP Status Code Distribution</title>
+      <chart>
+        <search>
+          <query>index=webapp_logs sourcetype=access_combined uri="$uri_filter_tok$"
+| rex field=_raw "\"\S+ \S+ \S+\" (?&lt;status&gt;\d{3})"
+| stats count by status
+| sort - count</query>
+          <earliest>$time_tok.earliest$</earliest>
+          <latest>$time_tok.latest$</latest>
+        </search>
+        <option name="charting.chart">pie</option>
+        <option name="charting.legend.placement">right</option>
+      </chart>
+    </panel>
+  </row>
+
+  <row>
+    <panel>
+      <title>Top 10 Requested URIs</title>
+      <table>
+        <search>
+          <query>index=webapp_logs sourcetype=access_combined uri="$uri_filter_tok$"
+| rex field=_raw "\"\S+ (?&lt;uri&gt;\S+) \S+\" (?&lt;status&gt;\d{3}) (?&lt;bytes&gt;\S+)"
+| stats count as requests, avg(bytes) as avg_bytes, dc(status) as distinct_status_codes by uri
+| eval avg_bytes=round(avg_bytes,0)
+| sort - requests
+| head 10</query>
+          <earliest>$time_tok.earliest$</earliest>
+          <latest>$time_tok.latest$</latest>
+        </search>
+        <option name="drilldown">none</option>
+        <option name="count">10</option>
+      </table>
+    </panel>
+    <panel>
+      <title>Top 10 Client IPs</title>
+      <table>
+        <search>
+          <query>index=webapp_logs sourcetype=access_combined uri="$uri_filter_tok$"
+| rex field=_raw "^(?&lt;clientip&gt;\S+)"
+| rex field=_raw "\"\S+ \S+ \S+\" (?&lt;status&gt;\d{3})"
+| stats count as requests, count(eval(status&gt;=400)) as error_requests by clientip
+| sort - requests
+| head 10</query>
+          <earliest>$time_tok.earliest$</earliest>
+          <latest>$time_tok.latest$</latest>
+        </search>
+        <option name="drilldown">none</option>
+        <option name="count">10</option>
+      </table>
+    </panel>
+  </row>
+
+  <row>
+    <panel>
+      <title>Apache Errors Over Time by Severity</title>
+      <chart>
+        <search>
+          <query>index=webapp_logs sourcetype=httpd_error
+| rex field=_raw "^\[[^\]]+\] \[(?&lt;severity&gt;\w+)\]"
+| timechart span=5m count by severity</query>
+          <earliest>$time_tok.earliest$</earliest>
+          <latest>$time_tok.latest$</latest>
+        </search>
+        <option name="charting.chart">column</option>
+        <option name="charting.chart.stackMode">stacked</option>
+        <option name="charting.legend.placement">bottom</option>
+        <option name="charting.fieldColors">{"error":0xdc4e41,"warn":0xf8be34,"notice":0x6db7c6}</option>
+      </chart>
+    </panel>
+    <panel>
+      <title>Recent Apache Errors</title>
+      <table>
+        <search>
+          <query>index=webapp_logs sourcetype=httpd_error
+| rex field=_raw "^\[(?&lt;error_time&gt;[^\]]+)\] \[(?&lt;severity&gt;\w+)\] \[client (?&lt;client_ip&gt;[^\]]+)\] (?&lt;message&gt;.*)"
+| table _time, severity, client_ip, message
+| sort - _time
+| head 25</query>
+          <earliest>$time_tok.earliest$</earliest>
+          <latest>$time_tok.latest$</latest>
+        </search>
+        <option name="drilldown">none</option>
+        <option name="count">25</option>
+        <format type="color" field="severity">
+          <colorPalette type="map">{"error":0xDC4E41,"warn":0xF8BE34,"notice":0x6DB7C6}</colorPalette>
+        </format>
+      </table>
+    </panel>
+  </row>
+</form>
